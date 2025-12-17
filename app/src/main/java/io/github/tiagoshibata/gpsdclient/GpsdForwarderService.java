@@ -24,10 +24,11 @@ public class GpsdForwarderService extends Service implements LoggingCallback, On
     private static final String NOTIFICATION_CHANNEL = "gpsd_streaming";
     private static final int NOTIFICATION_ID = 1;
     private UdpSensorStream sensorStream;
-    private Binder binder = new Binder();
+    private final Binder binder = new Binder();
     private LoggingCallback loggingCallback;
     private PowerManager.WakeLock wakeLock;
-    private NmeaMessageListenerCompat nmeaMessageListener = new NmeaMessageListenerCompat();
+    private final NmeaMessageListenerCompat nmeaMessageListener = new NmeaMessageListenerCompat();
+    private final NmeaFixAccumulator fixAccumulator = new NmeaFixAccumulator();
 
     class Binder extends android.os.Binder {
         void setLoggingCallback(LoggingCallback callback) {
@@ -110,8 +111,12 @@ public class GpsdForwarderService extends Service implements LoggingCallback, On
 
     @Override
     public void onNmeaMessage(String nmeaMessage) {
-        if (sensorStream != null)
-            sensorStream.send(nmeaMessage + "\r\n");
+        if (sensorStream == null) return;
+        //Log.d(TAG, "NMEA: " + nmeaMessage);
+        String xgps = fixAccumulator.onNmea(nmeaMessage);
+        if (xgps != null) {
+            sensorStream.send(xgps + "\r\n");
+        }
     }
 
     @Override
