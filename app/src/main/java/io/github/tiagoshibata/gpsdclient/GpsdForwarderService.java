@@ -113,6 +113,7 @@ public class GpsdForwarderService extends Service implements LoggingCallback, On
     public void onNmeaMessage(String nmeaMessage) {
         if (sensorStream == null) return;
         //Log.d(TAG, "NMEA: " + nmeaMessage);
+        //sensorStream.send(nmeaMessage);
         String xgps = fixAccumulator.onNmea(nmeaMessage);
         if (xgps != null) {
             sensorStream.send(xgps + "\r\n");
