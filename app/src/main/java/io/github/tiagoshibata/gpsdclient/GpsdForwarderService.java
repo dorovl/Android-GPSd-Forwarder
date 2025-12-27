@@ -8,13 +8,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.hardware.SensorManager;
 import android.location.LocationManager;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.SocketException;
 
 public class GpsdForwarderService extends Service implements LoggingCallback, OnNmeaMessageListenerCompat {
     public static final String GPSD_SERVER_ADDRESS = "io.github.tiagoshibata.GPSD_SERVER_ADDRESS";
@@ -27,6 +28,7 @@ public class GpsdForwarderService extends Service implements LoggingCallback, On
     private final Binder binder = new Binder();
     private LoggingCallback loggingCallback;
     private PowerManager.WakeLock wakeLock;
+    private WifiManager.MulticastLock multicastLock;
     private final NmeaMessageListenerCompat nmeaMessageListener = new NmeaMessageListenerCompat();
     private final NmeaFixAccumulator fixAccumulator = new NmeaFixAccumulator();
 
@@ -45,7 +47,6 @@ public class GpsdForwarderService extends Service implements LoggingCallback, On
             log(e.getMessage());
         }
 
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             // Setup notification channel
             NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -54,6 +55,16 @@ public class GpsdForwarderService extends Service implements LoggingCallback, On
                     getString(R.string.notification_channel_name),
                     NotificationManager.IMPORTANCE_LOW));
         }
+        
+        // Acquire multicast lock
+        WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+        if (wifi != null) {
+            multicastLock = wifi.createMulticastLock("GpsdMulticastLock");
+            multicastLock.setReferenceCounted(true);
+            multicastLock.acquire();
+            Log.d(TAG, "Multicast lock acquired");
+        }
+        
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GPSdClient:GPSdStreaming");
         wakeLock.acquire();
@@ -88,7 +99,7 @@ public class GpsdForwarderService extends Service implements LoggingCallback, On
         InetSocketAddress server = new InetSocketAddress(serverAddress, serverPort);
         try {
             sensorStream = new UdpSensorStream(server);
-        } catch (SocketException e) {
+        } catch (IOException e) {
             fail(e.toString());
         }
         return START_REDELIVER_INTENT;
@@ -106,8 +117,14 @@ public class GpsdForwarderService extends Service implements LoggingCallback, On
         if (sensorStream != null)
             sensorStream.stop();
         wakeLock.release();
+        
+        // Release multicast lock
+        if (multicastLock != null && multicastLock.isHeld()) {
+            multicastLock.release();
+            Log.d(TAG, "Multicast lock released");
+            multicastLock = null;
+        }
     }
-
 
     @Override
     public void onNmeaMessage(String nmeaMessage) {
